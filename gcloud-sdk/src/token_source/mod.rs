@@ -10,6 +10,7 @@ pub mod auth_token_generator;
 mod credentials;
 pub mod metadata;
 
+use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
 use credentials::{from_env_var, from_well_known_file};
@@ -105,17 +106,48 @@ impl Token {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Claims {
+    iss: String,
+    scope: String,
+    aud: String,
+    iat: u64,
+    exp: u64,
+}
+
 impl TryFrom<TokenResponse> for Token {
     type Error = crate::error::Error;
 
     fn try_from(v: TokenResponse) -> Result<Self, Self::Error> {
-        if v.token_type.is_empty() || v.access_token.0.is_empty() || v.expires_in == 0 {
+        if let Some(id_token) = v.id_token {
+            let key = &DecodingKey::from_secret(&[]);
+            let validation = &mut Validation::new(Algorithm::RS256);
+            validation.insecure_disable_signature_validation();
+
+            let t = jsonwebtoken::decode::<Claims>(&id_token, key, validation)?;
+
+            return Ok(Token {
+                type_: "Bearer".to_string(),
+                token: TokenValue(id_token.clone()),
+                expiry: Utc::now().add(chrono::Duration::seconds(t.claims.exp as i64)),
+            });
+        }
+
+        if v.token_type.clone().is_none()
+            || v.token_type.clone().unwrap().is_empty()
+            || v.access_token.clone().is_none()
+            || v.access_token.clone().unwrap().0.is_empty()
+            || v.expires_in.clone().is_none()
+            || v.expires_in.clone().unwrap() == 0
+        {
             Err(crate::error::ErrorKind::TokenData.into())
         } else {
             Ok(Token {
-                type_: v.token_type,
-                token: v.access_token,
-                expiry: Utc::now().add(chrono::Duration::seconds(v.expires_in.try_into().unwrap())),
+                type_: v.token_type.unwrap(),
+                token: v.access_token.unwrap(),
+                expiry: Utc::now().add(chrono::Duration::seconds(
+                    v.expires_in.unwrap().try_into().unwrap(),
+                )),
             })
         }
     }
@@ -123,9 +155,14 @@ impl TryFrom<TokenResponse> for Token {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct TokenResponse {
-    token_type: String,
-    access_token: TokenValue,
-    expires_in: u64,
+    #[serde(default)]
+    token_type: Option<String>,
+    #[serde(default)]
+    access_token: Option<TokenValue>,
+    #[serde(default)]
+    expires_in: Option<u64>,
+    #[serde(default)]
+    id_token: Option<String>,
 }
 
 impl TryFrom<&str> for TokenResponse {
@@ -155,33 +192,64 @@ mod test {
     test_token_try_from!(
         test_token_try_from_token_type,
         TokenResponse {
-            token_type: String::new(),
-            access_token: TokenValue("secret".into()),
-            expires_in: 1,
+            token_type: Some(String::new()),
+            access_token: Some(TokenValue("secret".into())),
+            expires_in: Some(1),
+            id_token: None,
+        },
+        false;
+
+        test_token_try_from_token_type_none,
+        TokenResponse {
+            token_type: None,
+            access_token: Some(TokenValue("secret".into())),
+            expires_in: Some(1),
+            id_token: None,
         },
         false;
 
         test_token_try_from_access_token,
         TokenResponse {
-            token_type: "type".into(),
-            access_token: TokenValue(String::new()),
-            expires_in: 1,
+            token_type: Some("type".into()),
+            access_token: Some(TokenValue(String::new())),
+            expires_in: Some(1),
+            id_token: None,
+        },
+        false;
+
+         test_token_try_from_access_token_none,
+        TokenResponse {
+            token_type: Some("type".into()),
+            access_token: None,
+            expires_in: Some(1),
+            id_token: None,
         },
         false;
 
         test_token_try_from_expires_in,
         TokenResponse {
-            token_type: "type".into(),
-            access_token: TokenValue("secret".into()),
-            expires_in: 0,
+            token_type: Some("type".into()),
+            access_token: Some(TokenValue("secret".into())),
+            expires_in: Some(0),
+            id_token: None,
+        },
+        false;
+
+        test_token_try_from_expires_in_none,
+        TokenResponse {
+            token_type: Some("type".into()),
+            access_token: Some(TokenValue("secret".into())),
+            expires_in: None,
+            id_token: None,
         },
         false;
 
         test_token_try_from_ok,
         TokenResponse {
-            token_type: "type".into(),
-            access_token: TokenValue("secret".into()),
-            expires_in: 1,
+            token_type: Some("type".into()),
+            access_token: Some(TokenValue("secret".into())),
+            expires_in: Some(1),
+            id_token: None,
         },
         true;
     );
