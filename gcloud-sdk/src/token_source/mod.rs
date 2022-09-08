@@ -109,7 +109,6 @@ impl Token {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Claims {
     iss: String,
-    scope: String,
     aud: String,
     iat: u64,
     exp: u64,
