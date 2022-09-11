@@ -42,6 +42,14 @@ impl Source for Credentials {
             User(user) => oauth2::token(user),
         }
     }
+
+    async fn identity(&self) -> crate::error::Result<Token> {
+        use Credentials::*;
+        match self {
+            ServiceAccount(sa) => jwt::token(sa),
+            User(user) => oauth2::token(user),
+        }
+    }
 }
 
 impl From<Credentials> for BoxSource {

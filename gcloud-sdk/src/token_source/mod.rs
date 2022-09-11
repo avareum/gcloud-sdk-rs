@@ -24,6 +24,7 @@ pub type BoxSource = Box<dyn Source + Send + Sync + 'static>;
 #[async_trait]
 pub trait Source {
     async fn token(&self) -> crate::error::Result<Token>;
+    async fn identity(&self) -> crate::error::Result<Token>;
 }
 
 pub async fn create_source(
@@ -119,17 +120,7 @@ impl TryFrom<TokenResponse> for Token {
 
     fn try_from(v: TokenResponse) -> Result<Self, Self::Error> {
         if let Some(id_token) = v.id_token {
-            let key = &DecodingKey::from_secret(&[]);
-            let validation = &mut Validation::new(Algorithm::RS256);
-            validation.insecure_disable_signature_validation();
-
-            let t = jsonwebtoken::decode::<Claims>(&id_token, key, validation)?;
-
-            return Ok(Token {
-                type_: "Bearer".to_string(),
-                token: TokenValue(id_token.clone()),
-                expiry: Utc::now().add(chrono::Duration::seconds(t.claims.exp as i64)),
-            });
+            return Token::try_from(id_token);
         }
 
         if v.token_type.clone().is_none()
@@ -149,6 +140,24 @@ impl TryFrom<TokenResponse> for Token {
                 )),
             })
         }
+    }
+}
+
+impl TryFrom<String> for Token {
+    type Error = crate::error::Error;
+
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        let key = &DecodingKey::from_secret(&[]);
+        let validation = &mut Validation::new(Algorithm::RS256);
+        validation.insecure_disable_signature_validation();
+
+        let t = jsonwebtoken::decode::<Claims>(&v, key, validation)?;
+
+        return Ok(Token {
+            type_: "Bearer".to_string(),
+            token: TokenValue(v),
+            expiry: Utc::now().add(chrono::Duration::seconds(t.claims.exp as i64)),
+        });
     }
 }
 

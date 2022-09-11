@@ -445,6 +445,7 @@ secret-vault-value = { version="0.3", features=["proto"] }
 [dev-dependencies]
 lazy_static = "1.4"
 cargo-audit = "0.17"
+rouille = "3.5.0"
 
 [package.metadata.release]
 disable-tag=true

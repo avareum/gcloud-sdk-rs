@@ -39,6 +39,20 @@ impl Metadata {
         format!("instance/service-accounts/{}/token?{}", self.account, query)
     }
 
+    fn uri_suffix_identity(&self) -> String {
+        let query = if self.scopes.is_empty() {
+            String::new()
+        } else {
+            Serializer::new(String::new())
+                .append_pair("audience", &self.scopes.join(","))
+                .finish()
+        };
+        format!(
+            "instance/service-accounts/{}/identity?{}",
+            self.account, query
+        )
+    }
+
     pub async fn detect_google_project_id(&self) -> Option<String> {
         self.gcemeta_client.project_id().await.ok()
     }
@@ -60,6 +74,20 @@ impl Source for Metadata {
         let resp_str = self.gcemeta_client.get(url, false).await?;
         let resp = TokenResponse::try_from(resp_str.as_str())?;
         Token::try_from(resp)
+    }
+
+    async fn identity(&self) -> crate::error::Result<Token> {
+        let url = PathAndQuery::from_str(
+            format!("/computeMetadata/v1/{}", self.uri_suffix_identity()).as_str(),
+        )?;
+        trace!(
+            "Receiving a new identity from Metadata Server using '{}'",
+            url
+        );
+
+        let resp_str = self.gcemeta_client.get(url, false).await?;
+
+        Token::try_from(resp_str)
     }
 }
 
